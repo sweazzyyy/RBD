@@ -1,0 +1,645 @@
+<!--<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>WebAR Очки</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #video-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        canvas { display: block; }
+    </style>
+    <!-- Подключаем библиотеки 
+    <!-- Замените старые скрипты на эти 
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="video-container">
+        <video id="input_video" playsinline></video>
+    </div>
+
+    <!-- Добавляем GLTFLoader 
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script>
+    const videoElement = document.getElementById('input_video');
+    
+    // --- Настройка Three.js ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 0.5; // Отодвигаем камеру чуть назад
+    
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Свет
+    const light = new THREE.DirectionalLight(0xffffff, 1.5);
+    light.position.set(0, 1, 2);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    // Группа для очков (будем двигать всю группу)
+    const glassesGroup = new THREE.Group();
+    scene.add(glassesGroup);
+
+    // --- ЗАГРУЗКА МОДЕЛИ ---
+    const loader = new THREE.GLTFLoader();
+    let glassesModel = null;
+
+    loader.load(
+        'glasses.glb', // Имя вашего файла
+        function (gltf) {
+            glassesModel = gltf.scene;
+            
+            // Настройка масштаба и позиции внутри группы
+            // Возможно, придется подбирать эти значения вручную под вашу модель
+            glassesModel.scale.set(0.01, 0.01, 0.01); 
+            glassesModel.rotation.y = Math.PI; // Часто модели смотрят "не туда", разворачиваем
+            
+            glassesGroup.add(glassesModel);
+        },
+        undefined,
+        function (error) {
+            console.error('Ошибка загрузки модели:', error);
+        }
+    );
+
+    // --- Логика MediaPipe ---
+    function onResults(results) {
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            const landmarks = results.multiFaceLandmarks[0];
+            
+            // Ключевые точки
+            const leftEye = landmarks[33];
+            const rightEye = landmarks[263];
+            const nose = landmarks[168];
+
+            // 1. Позиция (центр между глазами)
+            const centerX = (leftEye.x + rightEye.x) / 2;
+            const centerY = (leftEye.y + rightEye.y) / 2;
+            const centerZ = (leftEye.z + rightEye.z) / 2;
+
+            // Переносим координаты MediaPipe (0..1) в координаты Three.js
+            // Множитель -2 нужен, чтобы "приблизить" очки к камере
+            glassesGroup.position.set(
+                (centerX - 0.5) * -2, 
+                (centerY - 0.5) * -2, 
+                centerZ * -2 - 0.2
+            );
+
+            // 2. Масштаб (зависит от расстояния между глазами)
+            // Вычисляем расстояние между точками глаз
+            const dx = rightEye.x - leftEye.x;
+            const dy = rightEye.y - leftEye.y;
+            const eyeDistance = Math.sqrt(dx*dx + dy*dy);
+            
+            // Базовое расстояние между глазами ~0.15 в координатах MediaPipe
+            // Подбираем коэффициент масштабирования (начните с 1.5 и корректируйте)
+            const scale = eyeDistance * 1.5; 
+            glassesGroup.scale.set(scale, scale, scale);
+
+            // 3. Поворот (наклон головы)
+            const angle = Math.atan2(dy, dx);
+            glassesGroup.rotation.z = angle;
+        }
+        
+        renderer.render(scene, camera);
+    }
+
+    // Инициализация FaceMesh
+    const faceMesh = new FaceMesh({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    }});
+    
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    
+    faceMesh.onResults(onResults);
+
+    const cameraUtils = new Camera(videoElement, {
+        onFrame: async () => {
+            await faceMesh.send({image: videoElement});
+        },
+        width: 1280,
+        height: 720
+    });
+    
+    cameraUtils.start();
+</script>
+</body>
+</html>-->
+
+
+
+<!-- <!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAR Примерка Очков (Three.js)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        #video-container { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; 
+        }
+        video { 
+            width: 100%; height: 100%; object-fit: cover; 
+            transform: scaleX(-1); /* Зеркалим видео для естественности */
+        }
+        canvas { display: block; }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-family: sans-serif; font-size: 20px; pointer-events: none;
+        }
+    </style>
+
+    <!-- Библиотеки 
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    
+    <!-- Three.js и GLTFLoader 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+    <div id="video-container">
+        <video id="input_video" playsinline></video>
+    </div>
+    <div id="loading">Загрузка нейросети и модели...</div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const loadingText = document.getElementById('loading');
+
+        // --- 1. Настройка сцены Three.js ---
+        const scene = new THREE.Scene();
+        // Камера должна смотреть на лицо. FOV 75 стандартен.
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 0; // Камера в нуле, мы будем двигать очки к ней
+
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Оптимизация для ретины
+        document.body.appendChild(renderer.domElement);
+
+        // Освещение (важно для объема очков)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(0, 1, 2);
+        scene.add(dirLight);
+
+        // Группа для очков
+        const glassesGroup = new THREE.Group();
+        scene.add(glassesGroup);
+
+        // Переменные для сглаживания (Lerp)
+        let targetPosition = new THREE.Vector3();
+        let targetRotationZ = 0;
+        let targetScale = 1;
+        
+        // Коэффициент сглаживания (0.1 - плавно, 1.0 - мгновенно но дергано)
+        const SMOOTHING_FACTOR = 0.2; 
+
+        // --- 2. Загрузка модели очков ---
+        const loader = new THREE.GLTFLoader();
+        loader.load(
+            'glasses.glb', 
+            function (gltf) {
+                const model = gltf.scene;
+                
+                // Центрируем модель (если она была смещена при экспорте)
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                model.position.sub(center);
+
+                // Разворачиваем модель, если она смотрит не туда
+                model.rotation.y = Math.PI; 
+                
+                // Начальный масштаб (будет перезаписан трекингом, но нужен для старта)
+                model.scale.set(0.05, 0.05, 0.05); 
+                
+                glassesGroup.add(model);
+                loadingText.style.display = 'none'; // Скрываем надпись загрузки
+            },
+            undefined,
+            function (error) {
+                console.error(error);
+                loadingText.innerText = "Ошибка загрузки модели! Проверьте имя файла.";
+            }
+        );
+
+        // --- 3. Логика обработки лица (MediaPipe) ---
+        function onResults(results) {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // Точки: 33 (левый глаз), 263 (правый глаз)
+                const leftEye = landmarks[33];
+                const rightEye = landmarks[263];
+
+                // Вычисляем центр между глазами
+                const centerX = (leftEye.x + rightEye.x) / 2;
+                const centerY = (leftEye.y + rightEye.y) / 2;
+                const centerZ = (leftEye.z + rightEye.z) / 2;
+
+                // 1. Целевая позиция
+                // MediaPipe дает координаты 0..1. Переводим в систему Three.js.
+                // X инвертируем из-за зеркала камеры.
+                targetPosition.set(
+                    (0.5 - centerX) * 2.5,  // Множитель 2.5 регулирует "ширину" поля зрения
+                    (0.5 - centerY) * 2.5, 
+                    -centerZ * 2.5 - 0.5    // Очки чуть ближе к камере
+                );
+
+                // 2. Целевой масштаб (зависит от расстояния до камеры и ширины лица)
+                const dx = rightEye.x - leftEye.x;
+                const dy = rightEye.y - leftEye.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                // Чем меньше dist (лицо дальше), тем больше должен быть масштаб? Нет, наоборот.
+                // Но здесь dist нормализован. Просто подбираем коэффициент.
+                targetScale = dist * 12.0; // Подберите это число под вашу модель (обычно 8-15)
+
+                // 3. Целевой поворот (наклон головы)
+                targetRotationZ = Math.atan2(dy, dx);
+            }
+
+            // Применяем сглаживание (Lerp)
+            if (glassesGroup.children.length > 0) {
+                glassesGroup.position.lerp(targetPosition, SMOOTHING_FACTOR);
+                glassesGroup.scale.setScalar(THREE.MathUtils.lerp(glassesGroup.scale.x, targetScale, SMOOTHING_FACTOR));
+                glassesGroup.rotation.z = THREE.MathUtils.lerp(glassesGroup.rotation.z, targetRotationZ, SMOOTHING_FACTOR);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // --- 4. Инициализация MediaPipe FaceMesh ---
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
+        
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true, // Важно для точного отслеживания глаз
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        faceMesh.onResults(onResults);
+
+        // Запуск камеры
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        cameraUtils.start();
+
+        // Адаптив при изменении размера окна
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html> -->  
+
+
+
+<!--<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAR Очки - Финальная настройка</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        
+        /* Видео на заднем плане */
+        #video-container { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; 
+        }
+        video { 
+            width: 100%; height: 100%; object-fit: cover; 
+            transform: scaleX(-1); /* Зеркалим видео */
+        }
+        
+        /* Canvas с 3D очками поверх видео */
+        canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; 
+            pointer-events: none; /* Чтобы клики проходили сквозь канвас */
+        }
+
+        /* Панель настроек */
+        #controls {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 15px;
+            color: white; display: flex; gap: 20px; align-items: center; z-index: 10;
+            border: 1px solid #444;
+        }
+        .control-group { text-align: center; }
+        label { font-size: 14px; display: block; margin-bottom: 5px; }
+        input[type=range] { cursor: pointer; }
+        
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 24px; pointer-events: none; text-align: center; z-index: 20;
+        }
+    </style>
+
+    <!-- Библиотеки --
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+    <div id="video-container"><video id="input_video" playsinline></video></div>
+    <div id="loading">Загрузка нейросети и модели...<br><small>Пожалуйста, подождите</small></div>
+
+    <!-- Панель управления --
+    <div id="controls" style="display:none;">
+        <div class="control-group">
+            <label>Размер очков: <span id="scaleVal">1.0</span></label>
+            <input type="range" id="scaleRange" min="0.01" max="0.2" step="0.001" value="0.05">
+        </div>
+        <div class="control-group">
+            <label>Поворот (Y): <span id="rotVal">0</span></label>
+            <input type="range" id="rotRange" min="-3.14" max="3.14" step="0.1" value="0">
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const loadingText = document.getElementById('loading');
+        const controlsDiv = document.getElementById('controls');
+
+        // --- 1. Сцена Three.js ---
+        const scene = new THREE.Scene();
+        // Важно: камера должна смотреть на "лицо", которое будет на расстоянии около 1-2 единиц
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 0; 
+        
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        // Убираем прозрачность фона рендерера, если хотим видеть только видео под канвасом
+        // Но так как у нас canvas лежит поверх video через CSS, alpha: true нужен для прозрачных участков модели
+        renderer.setClearColor(0x000000, 0); 
+        document.body.appendChild(renderer.domElement);
+
+        // Свет
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(0, 2, 5);
+        scene.add(dirLight);
+
+        const glassesGroup = new THREE.Group();
+        scene.add(glassesGroup);
+
+        // Переменные для физики движения
+        let targetPos = new THREE.Vector3();
+        let currentScale = 0.05;
+        let targetScale = 0.05;
+
+        // --- 2. Загрузка модели ---
+        const loader = new THREE.GLTFLoader();
+        loader.load('glasses.glb', function (gltf) {
+            const model = gltf.scene;
+            
+            // Центрируем модель (чтобы центр координат был между линзами)
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            model.position.sub(center);
+
+            glassesGroup.add(model);
+            loadingText.style.display = 'none';
+            controlsDiv.style.display = 'flex';
+            
+        }, undefined, function (err) {
+            loadingText.innerHTML = "Ошибка загрузки glasses.glb!<br>Проверьте консоль (F12)";
+            console.error(err);
+        });
+
+        // --- 3. Логика трекинга ---
+        function onResults(results) {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const lm = results.multiFaceLandmarks[0];
+                
+                // Точки глаз (MediaPipe координаты: 0..1, где 0,0 - верхний левый угол)
+                const leftEye = lm[33];
+                const rightEye = lm[263];
+
+                // 1. Позиция (Середина между глазами)
+                const cx = (leftEye.x + rightEye.x) / 2;
+                const cy = (leftEye.y + rightEye.y) / 2;
+                
+                // Переводим в координаты Three.js.
+                // X: (0.5 - cx) * коэффициент. Коэффициент подбирает ширину обзора.
+                // Y: (0.5 - cy) * коэффициент.
+                // Z: Глубина. Чем меньше Z (ближе к 0), тем ближе к камере.
+                const viewWidth = 3.5; // Регулирует "ширину" сцены относительно лица
+                targetPos.set(
+                    (0.5 - cx) * viewWidth, 
+                    (0.5 - cy) * viewWidth, 
+                    -0.5 // Чуть выдвигаем вперед
+                );
+
+                // 2. Масштаб (зависит от расстояния между глазами)
+                const dx = rightEye.x - leftEye.x;
+                const dy = rightEye.y - leftEye.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                // Базовый множитель. Если очки мелкие - увеличьте число 18 до 25.
+                targetScale = dist * 18; 
+            }
+
+            // Плавное движение (Lerp)
+            // Двигаем группу к целевой точке
+            glassesGroup.position.lerp(targetPos, 0.2);
+            
+            // Масштаб
+            const uiScaleMult = parseFloat(document.getElementById('scaleRange').value) / 0.05;
+            const finalTargetScale = targetScale * uiScaleMult;
+            currentScale += (finalTargetScale - currentScale) * 0.2;
+            glassesGroup.scale.setScalar(currentScale);
+
+            // Поворот модели (если нужно развернуть очки лицом к пользователю)
+            const uiRotY = parseFloat(document.getElementById('rotRange').value);
+            if(glassesGroup.children[0]) {
+                glassesGroup.children[0].rotation.y = uiRotY;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // --- 4. Запуск MediaPipe ---
+        const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        faceMesh.onResults(onResults);
+
+        const camUtils = new Camera(videoElement, {
+            onFrame: async () => { await faceMesh.send({image: videoElement}); },
+            width: 1280, height: 720
+        });
+        camUtils.start();
+
+        // Обновление текста ползунков
+        document.getElementById('scaleRange').oninput = (e) => document.getElementById('scaleVal').innerText = e.target.value;
+        document.getElementById('rotRange').oninput = (e) => document.getElementById('rotVal').innerText = e.target.value;
+        
+        // Ресайз окна
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>-->
+
+<script>
+    const videoElement = document.getElementById('input_video');
+    const loadingText = document.getElementById('loading');
+    const controlsDiv = document.getElementById('controls');
+
+    // --- 1. Сцена Three.js ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    // Камеру ставим чуть дальше, чтобы было место для маневра
+    camera.position.z = 1; 
+    
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0); 
+    document.body.appendChild(renderer.domElement);
+
+    // Свет
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(0, 2, 5);
+    scene.add(dirLight);
+
+    const glassesGroup = new THREE.Group();
+    scene.add(glassesGroup);
+
+    // Переменные для плавности
+    let targetPos = new THREE.Vector3();
+    let currentScale = 0.05;
+    let targetScale = 0.05;
+
+    // --- 2. Загрузка модели ---
+    const loader = new THREE.GLTFLoader();
+    loader.load('glasses.glb', function (gltf) {
+        const model = gltf.scene;
+        
+        // Центрируем модель внутри группы
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
+
+        glassesGroup.add(model);
+        loadingText.style.display = 'none';
+        controlsDiv.style.display = 'flex';
+        
+    }, undefined, function (err) {
+        loadingText.innerHTML = "Ошибка загрузки glasses.glb!<br>Проверьте консоль (F12)";
+        console.error(err);
+    });
+
+    // --- 3. Логика трекинга (ИСПРАВЛЕННАЯ) ---
+    function onResults(results) {
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            const lm = results.multiFaceLandmarks[0];
+            
+            // Точки глаз
+            const leftEye = lm[33];
+            const rightEye = lm[263];
+
+            // 1. Вычисляем центр лица
+            const cx = (leftEye.x + rightEye.x) / 2;
+            const cy = (leftEye.y + rightEye.y) / 2;
+            
+            // 2. КОНВЕРТАЦИЯ КООРДИНАТ
+            // MediaPipe: X=0 слева, Y=0 сверху.
+            // Three.js: X=0 центр, Y=0 центр.
+            // Видео зеркальное (scaleX -1), поэтому X инвертируем: (0.5 - cx)
+            
+            // Коэффициент масштаба сцены. 
+            // Если очки слишком далеко друг от друга - уменьшите это число (например, до 2.0)
+            // Если слишком близко - увеличьте (до 4.0)
+            const SCENE_SCALE = 3.0; 
+
+            targetPos.set(
+                (0.5 - cx) * SCENE_SCALE,  // Инверсия X для зеркала
+                (0.5 - cy) * -SCENE_SCALE, // Инверсия Y (в MP Y растет вниз, в 3D вверх)
+                0                          // Z пока 0, привязываем к плоскости лица
+            );
+
+            // 3. Масштаб
+            const dx = rightEye.x - leftEye.x;
+            const dy = rightEye.y - leftEye.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            // Множитель размера. Подбирается под модель.
+            // Для Ray-Ban Stories обычно нужно около 15-20
+            targetScale = dist * 18; 
+        }
+
+        // Плавное движение (Lerp)
+        glassesGroup.position.lerp(targetPos, 0.25);
+        
+        // Масштаб с учетом ползунка
+        const uiScaleMult = parseFloat(document.getElementById('scaleRange').value) / 0.05;
+        const finalTargetScale = targetScale * uiScaleMult;
+        currentScale += (finalTargetScale - currentScale) * 0.25;
+        glassesGroup.scale.setScalar(currentScale);
+
+        // Поворот модели (если нужно развернуть)
+        const uiRotY = parseFloat(document.getElementById('rotRange').value);
+        if(glassesGroup.children[0]) {
+            glassesGroup.children[0].rotation.y = uiRotY;
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    // --- 4. Запуск MediaPipe ---
+    const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+    faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    faceMesh.onResults(onResults);
+
+    const camUtils = new Camera(videoElement, {
+        onFrame: async () => { await faceMesh.send({image: videoElement}); },
+        width: 1280, height: 720
+    });
+    camUtils.start();
+
+    // Обновление текста ползунков
+    document.getElementById('scaleRange').oninput = (e) => document.getElementById('scaleVal').innerText = e.target.value;
+    document.getElementById('rotRange').oninput = (e) => document.getElementById('rotVal').innerText = e.target.value;
+    
+    // Ресайз окна
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
