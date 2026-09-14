@@ -101,15 +101,14 @@
         // --- 1. Сцена Three.js ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 1; 
+        camera.position.z = 2; // Отодвигаем камеру для лучшего обзора
         
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio); // Улучшаем четкость на телефонах
+        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setClearColor(0x000000, 0); 
         document.body.appendChild(renderer.domElement);
 
-        // Свет
         const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
         scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -119,132 +118,94 @@
         const glassesGroup = new THREE.Group();
         scene.add(glassesGroup);
 
-        // Переменные для плавности
         let targetPos = new THREE.Vector3();
-        let currentScale = 0.05;
-        let targetScale = 0.05;
+        let targetScale = 1;
+        let currentScale = 1;
         let currentModel = null;
 
         // --- 2. Логика загрузки моделей ---
         const loader = new THREE.GLTFLoader();
 
         function loadModel(modelPath) {
-            loadingText.innerHTML = "Загрузка модели " + modelPath + "...<br><small>Пожалуйста, подождите</small>";
             loadingText.style.display = 'block';
-
             loader.load(modelPath, function (gltf) {
-                if (currentModel) {
-                    glassesGroup.remove(currentModel);
-                }
+                if (currentModel) glassesGroup.remove(currentModel);
 
                 currentModel = gltf.scene;
                 
-                // Центрируем модель
+                // --- НОРМАЛИЗАЦИЯ РАЗМЕРА МОДЕЛИ ---
                 const box = new THREE.Box3().setFromObject(currentModel);
-                const center = box.getCenter(new THREE.Vector3());
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z);
+                // Масштабируем модель так, чтобы она всегда была 1 единицу в ширину
+                if (maxDim > 0) currentModel.scale.setScalar(1 / maxDim);
+                
+                // Центрируем
+                const newBox = new THREE.Box3().setFromObject(currentModel);
+                const center = newBox.getCenter(new THREE.Vector3());
                 currentModel.position.sub(center);
 
                 glassesGroup.add(currentModel);
                 loadingText.style.display = 'none';
                 controlsDiv.style.display = 'flex';
                 
-            }, undefined, function (err) {
-                loadingText.innerHTML = "Ошибка загрузки " + modelPath;
-                console.error(err);
-            });
+            }, undefined, (err) => console.error(err));
         }
 
         loadModel('model1.glb');
 
-        const buttons = document.querySelectorAll('.model-btn');
-        buttons.forEach(button => {
-            button.addEventListener('click', (e) => {
-                buttons.forEach(b => b.classList.remove('active'));
-                button.classList.add('active');
-                const modelPath = button.getAttribute('data-model');
-                loadModel(modelPath);
-            });
-        });
-
-        // --- 3. Логика трекинга (МАКСИМАЛЬНЫЙ МАГНЕТИЗМ) ---
+        // --- 3. Логика трекинга ---
         function onResults(results) {
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 const lm = results.multiFaceLandmarks[0];
                 
-                // Точка 168 - переносица (самый стабильный якорь для очков)
+                // Точка 168 (переносица) и глаза
                 const anchor = lm[168];
                 const leftEye = lm[33];
                 const rightEye = lm[263];
 
-                // --- КОРРЕКЦИЯ ПРОПОРЦИЙ (Важно для телефонов) ---
-                const videoWidth = videoElement.videoWidth;
-                const videoHeight = videoElement.videoHeight;
-                const screenWidth = window.innerWidth;
-                const screenHeight = window.innerHeight;
-
-                const videoAspect = videoWidth / videoHeight;
-                const screenAspect = screenWidth / screenHeight;
-
-                let scaleX = 1, scaleY = 1;
-                let offsetX = 0, offsetY = 0;
-
-                // Логика object-fit: cover
-                if (screenAspect < videoAspect) {
-                    // Видео шире экрана (обрезано по бокам)
-                    scaleX = videoAspect / screenAspect;
-                    offsetX = (scaleX - 1) / 2;
-                } else {
-                    // Видео выше экрана (обрезано сверху/снизу)
-                    scaleY = screenAspect / videoAspect;
-                    offsetY = (scaleY - 1) / 2;
-                }
-
-                // Переводим координаты MediaPipe в экранные с учетом обрезки
-                const x = (anchor.x * scaleX - offsetX);
-                const y = (anchor.y * scaleY - offsetY);
-
-                // Координаты в Three.js (от -visibleWidth/2 до +visibleWidth/2)
+                // Расчет видимой области в единицах Three.js
                 const vFOV = camera.fov * Math.PI / 180;
                 const h = 2 * Math.tan(vFOV / 2) * camera.position.z;
                 const w = h * camera.aspect;
 
+                // Перевод координат (0..1) -> (-w/2 .. w/2)
+                // Так как видео зеркальное, X остается как есть
                 targetPos.set(
-                    (0.5 - x) * w,
-                    (0.5 - y) * -h,
-                    -anchor.z * 2.5 // Глубина (очки двигаются вперед-назад вместе с лицом)
+                    (anchor.x - 0.5) * w, 
+                    (0.5 - anchor.y) * h,
+                    -anchor.z * 5 // Небольшое смещение по Z
                 );
 
-                // --- МАСШТАБ ---
-                const dx = (rightEye.x - leftEye.x) * scaleX;
-                const dy = (rightEye.y - leftEye.y) * scaleY;
+                // Расчет масштаба на основе расстояния между глазами
+                const dx = rightEye.x - leftEye.x;
+                const dy = rightEye.y - leftEye.y;
                 const distance = Math.sqrt(dx*dx + dy*dy);
                 
-                // Эмпирический коэффициент для идеального размера
-                targetScale = distance * w * 1.4; 
+                // Базовый множитель для нормализованной модели
+                targetScale = distance * w * 1.5; 
 
-                // --- ПОВОРОТ ---
-                const angleZ = Math.atan2(dy, dx);
-                glassesGroup.rotation.z = -angleZ; // Наклон головы влево-вправо
+                // Наклон
+                glassesGroup.rotation.z = -Math.atan2(dy, dx);
             }
 
-            // Плавное следование (0.4 - очень быстрый отклик)
-            glassesGroup.position.lerp(targetPos, 0.4);
+            // Магнитное следование (0.5 - очень быстро)
+            glassesGroup.position.lerp(targetPos, 0.5);
             
-            const uiScaleMult = parseFloat(document.getElementById('scaleRange').value) / 0.05;
-            const finalTargetScale = targetScale * uiScaleMult;
-            currentScale += (finalTargetScale - currentScale) * 0.4;
+            const uiScaleMult = parseFloat(document.getElementById('scaleRange').value) * 20; 
+            const finalScale = targetScale * uiScaleMult;
+            currentScale += (finalScale - currentScale) * 0.5;
             glassesGroup.scale.setScalar(currentScale);
 
-            const uiRotY = parseFloat(document.getElementById('rotRange').value);
             if (currentModel) {
-                // Если очки смотрят не туда, уберите или измените + Math.PI
-                currentModel.rotation.y = uiRotY; 
+                currentModel.rotation.y = parseFloat(document.getElementById('rotRange').value);
             }
 
             renderer.render(scene, camera);
         }
 
-        // --- 4. Запуск MediaPipe ---
+        // --- 4. Запуск ---
         const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
         faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
         faceMesh.onResults(onResults);
@@ -255,11 +216,18 @@
         });
         camUtils.start();
 
-        // Обновление текста ползунков
+        const buttons = document.querySelectorAll('.model-btn');
+        buttons.forEach(button => {
+            button.addEventListener('click', () => {
+                buttons.forEach(b => b.classList.remove('active'));
+                button.classList.add('active');
+                loadModel(button.getAttribute('data-model'));
+            });
+        });
+
         document.getElementById('scaleRange').oninput = (e) => document.getElementById('scaleVal').innerText = e.target.value;
         document.getElementById('rotRange').oninput = (e) => document.getElementById('rotVal').innerText = e.target.value;
         
-        // Ресайз окна
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
