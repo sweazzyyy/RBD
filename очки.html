@@ -166,52 +166,79 @@
             });
         });
 
-        // --- 3. Логика трекинга (ИСПРАВЛЕННАЯ) ---
+        // --- 3. Логика трекинга (МАКСИМАЛЬНЫЙ МАГНЕТИЗМ) ---
         function onResults(results) {
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 const lm = results.multiFaceLandmarks[0];
                 
+                // Точка 168 - переносица (самый стабильный якорь для очков)
+                const anchor = lm[168];
                 const leftEye = lm[33];
                 const rightEye = lm[263];
 
-                const cx = (leftEye.x + rightEye.x) / 2;
-                const cy = (leftEye.y + rightEye.y) / 2;
-                
-                // Динамический расчет видимой области
+                // --- КОРРЕКЦИЯ ПРОПОРЦИЙ (Важно для телефонов) ---
+                const videoWidth = videoElement.videoWidth;
+                const videoHeight = videoElement.videoHeight;
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+
+                const videoAspect = videoWidth / videoHeight;
+                const screenAspect = screenWidth / screenHeight;
+
+                let scaleX = 1, scaleY = 1;
+                let offsetX = 0, offsetY = 0;
+
+                // Логика object-fit: cover
+                if (screenAspect < videoAspect) {
+                    // Видео шире экрана (обрезано по бокам)
+                    scaleX = videoAspect / screenAspect;
+                    offsetX = (scaleX - 1) / 2;
+                } else {
+                    // Видео выше экрана (обрезано сверху/снизу)
+                    scaleY = screenAspect / videoAspect;
+                    offsetY = (scaleY - 1) / 2;
+                }
+
+                // Переводим координаты MediaPipe в экранные с учетом обрезки
+                const x = (anchor.x * scaleX - offsetX);
+                const y = (anchor.y * scaleY - offsetY);
+
+                // Координаты в Three.js (от -visibleWidth/2 до +visibleWidth/2)
                 const vFOV = camera.fov * Math.PI / 180;
-                const visibleHeight = 2 * Math.tan(vFOV / 2) * camera.position.z;
-                const visibleWidth = visibleHeight * camera.aspect;
+                const h = 2 * Math.tan(vFOV / 2) * camera.position.z;
+                const w = h * camera.aspect;
 
                 targetPos.set(
-                    (0.5 - cx) * visibleWidth,
-                    (0.5 - cy) * -visibleHeight,
-                    0.05 // Слегка перед лицом
+                    (0.5 - x) * w,
+                    (0.5 - y) * -h,
+                    -anchor.z * 2.5 // Глубина (очки двигаются вперед-назад вместе с лицом)
                 );
 
-                const dx = rightEye.x - leftEye.x;
-                const dy = rightEye.y - leftEye.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
+                // --- МАСШТАБ ---
+                const dx = (rightEye.x - leftEye.x) * scaleX;
+                const dy = (rightEye.y - leftEye.y) * scaleY;
+                const distance = Math.sqrt(dx*dx + dy*dy);
                 
-                // Базовый масштаб (теперь зависит от ширины экрана)
-                targetScale = dist * visibleWidth * 2.2; 
+                // Эмпирический коэффициент для идеального размера
+                targetScale = distance * w * 1.4; 
 
-                // Наклон головы (Z)
+                // --- ПОВОРОТ ---
                 const angleZ = Math.atan2(dy, dx);
-                glassesGroup.rotation.z = -angleZ; 
+                glassesGroup.rotation.z = -angleZ; // Наклон головы влево-вправо
             }
 
-            // Плавное следование (0.3 - скорость "магнита")
-            glassesGroup.position.lerp(targetPos, 0.3);
+            // Плавное следование (0.4 - очень быстрый отклик)
+            glassesGroup.position.lerp(targetPos, 0.4);
             
             const uiScaleMult = parseFloat(document.getElementById('scaleRange').value) / 0.05;
             const finalTargetScale = targetScale * uiScaleMult;
-            currentScale += (finalTargetScale - currentScale) * 0.3;
+            currentScale += (finalTargetScale - currentScale) * 0.4;
             glassesGroup.scale.setScalar(currentScale);
 
             const uiRotY = parseFloat(document.getElementById('rotRange').value);
             if (currentModel) {
-                // Добавляем Math.PI, чтобы модель смотрела на пользователя
-                currentModel.rotation.y = uiRotY + Math.PI;
+                // Если очки смотрят не туда, уберите или измените + Math.PI
+                currentModel.rotation.y = uiRotY; 
             }
 
             renderer.render(scene, camera);
