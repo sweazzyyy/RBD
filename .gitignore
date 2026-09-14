@@ -1,0 +1,9 @@
+# Binaries & local tools
+ngrok.exe
+
+# Local scripts
+run_ngrok.bat
+run_server.bat
+
+# Editor settings
+.vscode/
