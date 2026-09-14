@@ -105,6 +105,7 @@
         
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio); // Улучшаем четкость на телефонах
         renderer.setClearColor(0x000000, 0); 
         document.body.appendChild(renderer.domElement);
 
@@ -132,26 +133,13 @@
             loadingText.style.display = 'block';
 
             loader.load(modelPath, function (gltf) {
-                // Очистка предыдущей модели и её ресурсов
                 if (currentModel) {
                     glassesGroup.remove(currentModel);
-                    currentModel.traverse((node) => {
-                        if (node.isMesh) {
-                            if (node.geometry) node.geometry.dispose();
-                            if (node.material) {
-                                if (Array.isArray(node.material)) {
-                                    node.material.forEach(m => m.dispose());
-                                } else {
-                                    node.material.dispose();
-                                }
-                            }
-                        }
-                    });
                 }
 
                 currentModel = gltf.scene;
                 
-                // Центрируем модель внутри группы
+                // Центрируем модель
                 const box = new THREE.Box3().setFromObject(currentModel);
                 const center = box.getCenter(new THREE.Vector3());
                 currentModel.position.sub(center);
@@ -161,22 +149,13 @@
                 controlsDiv.style.display = 'flex';
                 
             }, undefined, function (err) {
-                loadingText.innerHTML = "Ошибка загрузки " + modelPath + "!<br><small>Проверьте наличие файла или выберите другую модель</small>";
+                loadingText.innerHTML = "Ошибка загрузки " + modelPath;
                 console.error(err);
-                
-                // Скрываем ошибку через 3 секунды, если какая-то модель уже загружена
-                setTimeout(() => {
-                    if (currentModel) {
-                        loadingText.style.display = 'none';
-                    }
-                }, 3000);
             });
         }
 
-        // Загружаем первую модель по умолчанию
         loadModel('model1.glb');
 
-        // Навешиваем обработчики на кнопки переключения моделей
         const buttons = document.querySelectorAll('.model-btn');
         buttons.forEach(button => {
             button.addEventListener('click', (e) => {
@@ -187,48 +166,52 @@
             });
         });
 
-        // --- 3. Логика трекинга ---
+        // --- 3. Логика трекинга (ИСПРАВЛЕННАЯ) ---
         function onResults(results) {
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 const lm = results.multiFaceLandmarks[0];
                 
-                // Точки глаз
                 const leftEye = lm[33];
                 const rightEye = lm[263];
 
-                // 1. Вычисляем центр лица
                 const cx = (leftEye.x + rightEye.x) / 2;
                 const cy = (leftEye.y + rightEye.y) / 2;
                 
-                const SCENE_SCALE = 3.0; 
+                // Динамический расчет видимой области
+                const vFOV = camera.fov * Math.PI / 180;
+                const visibleHeight = 2 * Math.tan(vFOV / 2) * camera.position.z;
+                const visibleWidth = visibleHeight * camera.aspect;
 
                 targetPos.set(
-                    (0.5 - cx) * SCENE_SCALE,  // Инверсия X для зеркала
-                    (0.5 - cy) * -SCENE_SCALE, // Инверсия Y (в MP Y растет вниз, в 3D вверх)
-                    0                          // Z пока 0, привязываем к плоскости лица
+                    (0.5 - cx) * visibleWidth,
+                    (0.5 - cy) * -visibleHeight,
+                    0.05 // Слегка перед лицом
                 );
 
-                // 3. Масштаб
                 const dx = rightEye.x - leftEye.x;
                 const dy = rightEye.y - leftEye.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 
-                targetScale = dist * 18; 
+                // Базовый масштаб (теперь зависит от ширины экрана)
+                targetScale = dist * visibleWidth * 2.2; 
+
+                // Наклон головы (Z)
+                const angleZ = Math.atan2(dy, dx);
+                glassesGroup.rotation.z = -angleZ; 
             }
 
-            // Плавное движение (Lerp)
-            glassesGroup.position.lerp(targetPos, 0.25);
+            // Плавное следование (0.3 - скорость "магнита")
+            glassesGroup.position.lerp(targetPos, 0.3);
             
-            // Масштаб с учетом ползунка
             const uiScaleMult = parseFloat(document.getElementById('scaleRange').value) / 0.05;
             const finalTargetScale = targetScale * uiScaleMult;
-            currentScale += (finalTargetScale - currentScale) * 0.25;
+            currentScale += (finalTargetScale - currentScale) * 0.3;
             glassesGroup.scale.setScalar(currentScale);
 
-            // Поворот модели
             const uiRotY = parseFloat(document.getElementById('rotRange').value);
             if (currentModel) {
-                currentModel.rotation.y = uiRotY;
+                // Добавляем Math.PI, чтобы модель смотрела на пользователя
+                currentModel.rotation.y = uiRotY + Math.PI;
             }
 
             renderer.render(scene, camera);
